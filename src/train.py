@@ -19,8 +19,8 @@ except ImportError:
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Train Transformer from scratch for abstractive summarization")
-    parser.add_argument("--train", type=str, default="data/train.tsv", help="Path to training data")
-    parser.add_argument("--valid", type=str, default="data/valid.tsv", help="Path to validation data")
+    parser.add_argument("--train", type=str, default="data/train-00000-of-00001.parquet", help="Path to training data")
+    parser.add_argument("--valid", type=str, default="data/valid-00000-of-00001.parquet", help="Path to validation data")
     parser.add_argument("--source-field", type=str, default="text")
     parser.add_argument("--target-field", type=str, default="summary")
     parser.add_argument("--batch-size", type=int, default=16)

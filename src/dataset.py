@@ -9,6 +9,50 @@ from torch.utils.data import Dataset
 from .vocab import Vocab
 
 
+SOURCE_FIELD_CANDIDATES = (
+    "text",
+    "article",
+    "document",
+    "content",
+    "source",
+    "input",
+    "body",
+    "original_text",
+    "maintext",
+)
+TARGET_FIELD_CANDIDATES = (
+    "summary",
+    "summaries",
+    "abstract",
+    "highlights",
+    "target",
+    "output",
+    "headline",
+    "title",
+    "short_summary",
+)
+
+
+def resolve_field(available_fields, requested_field: str, candidates) -> str:
+    fields = list(available_fields)
+    if requested_field in fields:
+        return requested_field
+
+    lower_to_original = {field.lower(): field for field in fields}
+    requested_lower = requested_field.lower()
+    if requested_lower in lower_to_original:
+        return lower_to_original[requested_lower]
+
+    for candidate in candidates:
+        if candidate in lower_to_original:
+            return lower_to_original[candidate]
+
+    raise ValueError(
+        f"Could not find field '{requested_field}'. Available fields: {fields}. "
+        "Pass --source-field/--target-field with the correct column names."
+    )
+
+
 def read_summary_file(path: str, source_field: str = "text", target_field: str = "summary") -> List[Dict[str, str]]:
     path_obj = Path(path)
     if not path_obj.exists():
@@ -16,20 +60,47 @@ def read_summary_file(path: str, source_field: str = "text", target_field: str =
 
     data = []
     suffix = path_obj.suffix.lower()
+
+    if suffix == ".parquet":
+        try:
+            import pandas as pd
+        except ImportError as exc:
+            raise ImportError(
+                "Reading parquet data requires pandas and pyarrow. "
+                "Install them with: pip install -r requirements.txt"
+            ) from exc
+
+        frame = pd.read_parquet(path_obj)
+        source_column = resolve_field(frame.columns, source_field, SOURCE_FIELD_CANDIDATES)
+        target_column = resolve_field(frame.columns, target_field, TARGET_FIELD_CANDIDATES)
+
+        for _, row in frame[[source_column, target_column]].dropna().iterrows():
+            source_text = str(row[source_column]).strip()
+            target_text = str(row[target_column]).strip()
+            if source_text and target_text:
+                data.append({"text": source_text, "summary": target_text})
+        return data
+
     with open(path_obj, "r", encoding="utf-8") as handle:
         if suffix == ".jsonl":
             rows = (json.loads(line) for line in handle if line.strip())
             for row in rows:
-                source_text = str(row.get(source_field, "")).strip()
-                target_text = str(row.get(target_field, "")).strip()
+                source_key = resolve_field(row.keys(), source_field, SOURCE_FIELD_CANDIDATES)
+                target_key = resolve_field(row.keys(), target_field, TARGET_FIELD_CANDIDATES)
+                source_text = str(row.get(source_key, "")).strip()
+                target_text = str(row.get(target_key, "")).strip()
                 if source_text and target_text:
                     data.append({"text": source_text, "summary": target_text})
         else:
             delimiter = "\t" if suffix in {".tsv", ".txt"} else ","
             reader = csv.DictReader(handle, delimiter=delimiter)
+            if reader.fieldnames is None:
+                return data
+            source_key = resolve_field(reader.fieldnames, source_field, SOURCE_FIELD_CANDIDATES)
+            target_key = resolve_field(reader.fieldnames, target_field, TARGET_FIELD_CANDIDATES)
             for row in reader:
-                source_text = row.get(source_field, "").strip()
-                target_text = row.get(target_field, "").strip()
+                source_text = row.get(source_key, "").strip()
+                target_text = row.get(target_key, "").strip()
                 if source_text and target_text:
                     data.append({"text": source_text, "summary": target_text})
     return data
